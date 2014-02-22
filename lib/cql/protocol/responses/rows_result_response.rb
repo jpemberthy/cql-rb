@@ -58,7 +58,10 @@ module Cql
 
       def self.read_column_type!(buffer)
         id, type = read_option!(buffer) do |id, b|
-          if id > 0 && id <= 0x10
+          if id == 0
+            type_class = read_string!(buffer)
+            [:custom, type_class]
+          elsif id > 0 && id <= 0x10
             COLUMN_TYPES[id]
           elsif id == 0x20
             sub_type = read_column_type!(buffer)
