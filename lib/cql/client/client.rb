@@ -207,6 +207,7 @@ module Cql
         @connected = false
         @connecting = false
         @closing = false
+        @on_new_connections = options[:on_new_connections]
       end
 
       def connect
@@ -459,6 +460,7 @@ module Cql
               f.on_value do
                 @connection_manager.add_connections(new_connections)
               end
+              @on_new_connections.call if @on_new_connections
               f
             elsif remaning_attempts > 0
               timeout = 2**(MAX_RECONNECTION_ATTEMPTS - remaning_attempts)
