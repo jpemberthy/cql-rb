@@ -2,6 +2,16 @@
 
 module Cql
   module Client
+    # Query results encapsulate the rows returned by a query.
+    #
+    # In addition to containing the rows it contains metadata about the data
+    # types of the columns of the rows, and it knows the ID of the trace,
+    # if tracing was requested for the query.
+    #
+    # When paging over a big result you can use {#last_page?} to find out if the
+    # page is the last, or {#next_page} to retrieve the next page.
+    #
+    # `QueryResult` is an `Enumerable` so it can be mapped, filtered, reduced, etc.
     class QueryResult
       include Enumerable
 
@@ -37,8 +47,31 @@ module Cql
         @rows.each(&block)
       end
       alias_method :each_row, :each
+
+      # Returns true when there are no more pages to load.
+      #
+      # This is only relevant when you have requested paging of the results with
+      # the `:page_size` option to {Cql::Client::Client#execute} or
+      # {Cql::Client::PreparedStatement#execute}.
+      #
+      # @see Cql::Client::Client#execute
+      def last_page?
+        true
+      end
+
+      # Returns the next page or nil when there is no next page.
+      #
+      # This is only relevant when you have requested paging of the results with
+      # the `:page_size` option to {Cql::Client::Client#execute} or
+      # {Cql::Client::PreparedStatement#execute}.
+      #
+      # @see Cql::Client::Client#execute
+      def next_page
+        nil
+      end
     end
 
+    # @private
     class PagedQueryResult < QueryResult
       def metadata
         @result.metadata
@@ -88,6 +121,7 @@ module Cql
       end
 
       def next_page
+        return Future.resolved(nil) if last_page?
         @client.execute(@request.cql, *@request.values, @options)
       end
     end
@@ -100,6 +134,7 @@ module Cql
       end
 
       def next_page
+        return Future.resolved(nil) if last_page?
         @prepared_statement.execute(*@request.values, @options)
       end
     end
@@ -121,7 +156,10 @@ module Cql
       end
 
       def next_page
-        synchronous_backtrace { self.class.new(@result.next_page.value) }
+        synchronous_backtrace do
+          asynchronous_result = @result.next_page.value
+          asynchronous_result && self.class.new(asynchronous_result)
+        end
       end
     end
 

@@ -192,7 +192,7 @@ describe 'A CQL client' do
 
       it 'raises an error when only an auth provider has been given' do
         pending('authentication not configured', unless: authentication_enabled) do
-          auth_provider = Cql::Client::PlainTextAuthProvider.new('cassandra', 'cassandra')
+          auth_provider = Cql::Auth::PlainTextAuthProvider.new('cassandra', 'cassandra')
           expect { Cql::Client.connect(connection_options.merge(credentials: nil, auth_provider: auth_provider, protocol_version: 1)) }.to raise_error(Cql::AuthenticationError)
         end
       end
@@ -209,7 +209,7 @@ describe 'A CQL client' do
       end
 
       it 'uses the auth provider given in the :auth_provider option' do
-        auth_provider = Cql::Client::PlainTextAuthProvider.new('cassandra', 'cassandra')
+        auth_provider = Cql::Auth::PlainTextAuthProvider.new('cassandra', 'cassandra')
         client = Cql::Client.connect(connection_options.merge(auth_provider: auth_provider, credentials: nil))
         client.execute('SELECT * FROM system.schema_keyspaces')
       end
@@ -228,7 +228,7 @@ describe 'A CQL client' do
       it 'raises an error when the credentials are bad' do
         pending('authentication not configured', unless: authentication_enabled) do
           expect {
-            auth_provider = Cql::Client::PlainTextAuthProvider.new('foo', 'bar')
+            auth_provider = Cql::Auth::PlainTextAuthProvider.new('foo', 'bar')
             Cql::Client.connect(connection_options.merge(auth_provider: auth_provider, credentials: nil))
           }.to raise_error(Cql::AuthenticationError)
         end
@@ -407,6 +407,18 @@ describe 'A CQL client' do
       result_page = result_page.next_page
       result_page.count.should == row_count - page_size
       result_page.should be_last_page
+    end
+
+    it 'returns nil from #next_page when the last page has been returned' do
+      page_size = row_count/5 + 1
+      statement = client.prepare('SELECT * FROM counters')
+      result_page = statement.execute(page_size: page_size)
+      page_count = 0
+      while result_page
+        page_count += 1
+        result_page = result_page.next_page
+      end
+      page_count.should == 5
     end
   end
 

@@ -20,7 +20,6 @@ module Cql
   TimeoutError = Class.new(CqlError)
   ClientError = Class.new(CqlError)
   AuthenticationError = Class.new(ClientError)
-  IncompleteTraceError = Class.new(ClientError)
   UnsupportedProtocolVersionError = Class.new(ClientError)
   NotPreparedError = Class.new(ClientError)
 
@@ -92,9 +91,6 @@ module Cql
     # @param [Hash] options
     # @option options [Array<String>] :hosts (['localhost']) One or more
     #   hostnames used as seed nodes when connecting. Duplicates will be removed.
-    # @option options [String] :host ('localhost') A comma separated list of 
-    #   hostnames to use as seed nodes. This is a backwards-compatible version
-    #   of the :hosts option, and is deprecated.
     # @option options [String] :port (9042) The port to connect to, this port
     #   will be used for all nodes. Because the `system.peers` table does not
     #   contain the port that the nodes are listening on, the port must be the
@@ -143,7 +139,6 @@ require 'cql/client/connector'
 require 'cql/client/null_logger'
 require 'cql/client/column_metadata'
 require 'cql/client/result_metadata'
-require 'cql/client/query_trace'
 require 'cql/client/execute_options_decoder'
 require 'cql/client/keyspace_changer'
 require 'cql/client/client'
@@ -152,5 +147,4 @@ require 'cql/client/batch'
 require 'cql/client/query_result'
 require 'cql/client/void_result'
 require 'cql/client/request_runner'
-require 'cql/client/authenticators'
 require 'cql/client/peer_discovery'
