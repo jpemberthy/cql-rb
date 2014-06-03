@@ -4,21 +4,41 @@ module Cql
   # A variant of UUID which can extract its time component.
   #
   class TimeUuid < Uuid
+    include Comparable
+
     # Returns the time component from this UUID as a Time.
     #
     # @return [Time]
     #
     def to_time
+      t = time_bits - GREGORIAN_OFFSET
+      seconds = t/10_000_000
+      microseconds = (t - seconds * 10_000_000)/10.0
+      Time.at(seconds, microseconds).utc
+    end
+
+    def <=>(other)
+      c = self.time_bits <=> other.time_bits
+      return c unless c == 0
+      (self.value & LOWER_HALF_MASK) <=> (other.value & LOWER_HALF_MASK)
+    end
+
+    protected
+
+    def time_bits
       n = (value >> 64)
       t = 0
       t |= (n & 0x0000000000000fff) << 48
       t |= (n & 0x00000000ffff0000) << 16
       t |= (n & 0xffffffff00000000) >> 32
-      t -= GREGORIAN_OFFSET
-      seconds = t/10_000_000
-      microseconds = (t - seconds * 10_000_000)/10.0
-      Time.at(seconds, microseconds).utc
+      t
     end
+
+    private
+
+    LOWER_HALF_MASK = 0xffffffff_ffffffff
+
+    public
 
     # A UUID version 1, variant 1 generator. It can generate a sequence of UUIDs
     # with reasonable uniqueness guarantees:

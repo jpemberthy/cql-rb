@@ -5,15 +5,32 @@ require 'spec_helper'
 
 module Cql
   describe TimeUuid do
-    let :time do
-      Time.utc(2013, 6, 7, 8, 9, 10)
-    end
-
     describe '#to_time' do
       it 'returns a Time' do
         x = TimeUuid.new('00b69180-d0e1-11e2-8b8b-0800200c9a66')
         x.to_time.should be > Time.utc(2013, 6, 9, 8, 45, 57)
         x.to_time.should be < Time.utc(2013, 6, 9, 8, 45, 58)
+      end
+    end
+
+    describe '#<=>' do
+      let :generator do
+        TimeUuid::Generator.new
+      end
+
+      let :uuids do
+        [
+          generator.from_time(Time.utc(2014, 5,  1,  2, 3, 4, 1), 0),
+          generator.from_time(Time.utc(2014, 5,  1,  2, 3, 4, 2), 0),
+          generator.from_time(Time.utc(2014, 5,  1,  2, 3, 5, 0), 0),
+          generator.from_time(Time.utc(2014, 5, 11, 14, 3, 4, 0), 0),
+          generator.from_time(Time.utc(2014, 5, 20,  2, 3, 4, 0), 0),
+          generator.from_time(Time.utc(2014, 6,  7,  2, 3, 4, 0), 0),
+        ]
+      end
+
+      it 'sorts by the time component' do
+        uuids.shuffle.sort.should == uuids
       end
     end
   end

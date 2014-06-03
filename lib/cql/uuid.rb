@@ -28,18 +28,17 @@ module Cql
     #
     def to_s
       @s ||= begin
-        parts = []
-        parts << (@n >> (24 * 4)).to_s(16).rjust(8, '0')
-        parts << ((@n >> (20 * 4)) & 0xffff).to_s(16).rjust(4, '0')
-        parts << ((@n >> (16 * 4)) & 0xffff).to_s(16).rjust(4, '0')
-        parts << ((@n >> (12 * 4)) & 0xffff).to_s(16).rjust(4, '0')
-        parts << (@n & 0xffffffffffff).to_s(16).rjust(12, '0')
-        parts.join('-').force_encoding(::Encoding::ASCII)
+        s = RAW_FORMAT % @n
+        s.insert(20, HYPHEN)
+        s.insert(16, HYPHEN)
+        s.insert(12, HYPHEN)
+        s.insert( 8, HYPHEN)
+        s
       end
     end
 
     def hash
-      @h ||= 0x7fffffffffffffff - ((@n & 0xffffffffffffffff) ^ ((@n >> 64) & 0xffffffffffffffff))
+      @n.hash
     end
 
     # Returns the numerical representation of this UUID
@@ -49,6 +48,7 @@ module Cql
     def value
       @n
     end
+    alias_method :to_i, :value
 
     # @private
     def eql?(other)
@@ -58,17 +58,25 @@ module Cql
 
     private
 
-    HEX_STRING_PATTERN = /^[0-9a-fA-F]+$/
+    RAW_FORMAT = '%032x'.force_encoding(Encoding::ASCII).freeze
+    HYPHEN = '-'.force_encoding(Encoding::ASCII).freeze
+    EMPTY_STRING = ''.freeze
 
-    def from_s(str)
-      str = str.gsub('-', '')
-      raise ArgumentError, "Expected 32 chars but got #{str.length}" unless str.length == 32
-      raise ArgumentError, "Expected only characters 0-9, a-f, A-F" unless str =~ HEX_STRING_PATTERN
-      n = 0
-      (str.length/2).times do |i|
-        n = (n << 8) | str[i * 2, 2].to_i(16)
+    if RUBY_ENGINE == 'jruby'
+      HEX_RE = /^[A-Fa-f0-9]+$/
+      # See https://github.com/jruby/jruby/issues/1608
+      def from_s(str)
+        str = str.gsub(HYPHEN, EMPTY_STRING)
+        raise ArgumentError, "Expected 32 hexadecimal digits but got #{str.length}" unless str.length == 32
+        raise ArgumentError, "invalid value for Integer(): \"#{str}\"" unless str =~ HEX_RE
+        Integer(str, 16)
       end
-      n
+    else
+      def from_s(str)
+        str = str.gsub(HYPHEN, EMPTY_STRING)
+        raise ArgumentError, "Expected 32 hexadecimal digits but got #{str.length}" unless str.length == 32
+        Integer(str, 16)
+      end
     end
   end
 end

@@ -23,7 +23,7 @@ module Cql
       end
 
       let :buffer do
-        ByteBuffer.new
+        CqlByteBuffer.new
       end
 
       before do
@@ -320,6 +320,13 @@ module Cql
           protocol_handler.on_closed { called = true }
           connection.closed_listener.call(StandardError.new('Blurgh'))
           called.should be_true, 'expected the close listener to have been called'
+        end
+
+        it 'passes the error that made the connection close to the listener' do
+          error = nil
+          protocol_handler.on_closed { |e| error = e }
+          connection.closed_listener.call(StandardError.new('Blurgh'))
+          error.message.should == 'Blurgh'
         end
 
         it 'ignores errors raised by the listener' do

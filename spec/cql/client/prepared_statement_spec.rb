@@ -36,7 +36,7 @@ module Cql
       end
 
       let :raw_rows do
-        buffer = ByteBuffer.new("\x00\x00\x00\x03")
+        buffer = Protocol::CqlByteBuffer.new("\x00\x00\x00\x03")
         buffer << "\x00\x00\x00\x04\x00\x00\x00\x0b"
         buffer << "\x00\x00\x00\x05hello"
         buffer << "\x00\x00\x00\x08\x00\x00\x00\x00\x00\x00\x00\x00"
@@ -236,7 +236,6 @@ module Cql
 
           it 'returns a result which knows when there are no more pages' do
             result = statement.execute(11, 'foo', page_size: 2).value
-            result = result.next_page.value
             result.should be_last_page
           end
         end

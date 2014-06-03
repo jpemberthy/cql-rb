@@ -84,6 +84,18 @@ module Cql
           result.should_not be_empty
         end
       end
+
+      describe '#last_page?' do
+        it 'returns true' do
+          result.should be_last_page
+        end
+      end
+
+      describe '#next_page' do
+        it 'returns nil' do
+          result.next_page.should be_nil
+        end
+      end
     end
 
     describe LazyQueryResult do
@@ -159,7 +171,10 @@ module Cql
 
       describe '#each' do
         it 'delegates to the wrapped result' do
-          query_result.stub(:each).and_yield(:row1).and_yield(:row2)
+          query_result.stub(:each) do |&block|
+            block.call(:row1)
+            block.call(:row2)
+          end
           rows = paged_query_result.each_with_object([]) { |row, rows| rows << row }
           rows.should == [:row1, :row2]
         end
@@ -206,11 +221,16 @@ module Cql
 
       describe '#next_page' do
         let :next_query_result do
-          double(:next_query_result, paging_state: 'thenextpagingstate')
+          described_class.new(client, request, double(:next_query_result, paging_state: 'thenextpagingstate'), options)
+        end
+
+        let :last_query_result do
+          described_class.new(client, request, double(:next_query_result, paging_state: nil), options)
         end
 
         before do
           client.stub(:execute).and_return(Future.resolved(next_query_result))
+          client.stub(:execute).with(anything, anything, hash_including(paging_state: 'thenextpagingstate')).and_return(Future.resolved(last_query_result))
         end
 
         it 'calls the client and passes the paging state' do
@@ -249,6 +269,11 @@ module Cql
           f = paged_query_result.next_page
           f.value.should equal(next_query_result)
         end
+
+        it 'returns nil when it is the last page' do
+          f = paged_query_result.next_page.value.next_page.value.next_page
+          f.value.should be_nil
+        end
       end
     end
 
@@ -277,16 +302,20 @@ module Cql
 
       describe '#next_page' do
         let :next_query_result do
-          double(:next_query_result, paging_state: 'thenextpagingstate')
+          described_class.new(statement, request, double(:next_query_result, paging_state: 'thenextpagingstate'), options)
+        end
+
+        let :last_query_result do
+          described_class.new(statement, request, double(:next_query_result, paging_state: nil), options)
         end
 
         before do
           statement.stub(:execute).and_return(Future.resolved(next_query_result))
+          statement.stub(:execute).with(anything, anything, hash_including(paging_state: 'thenextpagingstate')).and_return(Future.resolved(last_query_result))
         end
 
         it 'calls the statement and passes the paging state' do
           paged_query_result.next_page.value
-          statement.should have_received(:execute).with(anything, anything, hash_including(paging_state: 'thepagingstate'))
         end
 
         it 'calls the statement and passes the options' do
@@ -308,6 +337,11 @@ module Cql
         it 'returns the result of the call' do
           f = paged_query_result.next_page
           f.value.should equal(next_query_result)
+        end
+
+        it 'returns nil when it is the last page' do
+          f = paged_query_result.next_page.value.next_page.value.next_page
+          f.value.should be_nil
         end
       end
     end
@@ -332,6 +366,11 @@ module Cql
           second_page = paged_query_result.next_page
           second_page.next_page
           next_query_result.should have_received(:next_page)
+        end
+
+        it 'returns nil when it is the last page' do
+          asynchronous_paged_query_result.stub(:next_page).and_return(Future.resolved(nil))
+          paged_query_result.next_page.should be_nil
         end
       end
 

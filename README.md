@@ -134,14 +134,20 @@ The driver supports prepared statements. Use `#prepare` to create a statement ob
 
 ```ruby
 statement = client.prepare('SELECT date, description FROM events WHERE id = ?')
-rows = statement.execute(1235)
+
+[123, 234, 345].each do |id|
+  rows = statement.execute(id)
+  # ...
+end
 ```
 
-A prepared statement can be run many times, but the CQL parsing will only be done once. Use prepared statements for queries you run over and over again.
+A prepared statement can be run many times, but the CQL parsing will only be done once on each node. Use prepared statements for queries you run over and over again.
 
 `INSERT`, `UPDATE`, `DELETE` and `SELECT` statements can be prepared, other statements may raise `QueryError`.
 
 Statements are prepared on all connections and each call to `#execute` selects a random connection to run the query on.
+
+You should only create a prepared statement for a query once, and then reuse the prepared statement object. Preparing the same CQL over and over again is bad for performance since each preparation requires a roundtrip to _all_ connected Cassandra nodes.
 
 ## Batching
 
@@ -188,27 +194,15 @@ client.batch(:counter) do |batch|
 end
 ```
 
-You can also specify the regular options such as consistency, timeout and whether or not to enable tracing:
+If you want to execute the same prepared statement multiple times in a batch there is a special variant of the batching feature available from `PreparedStatement`:
 
 ```ruby
-client.batch(:unlogged, trace: true) do |batch|
-  # ...
+# the same counter_statement as in the example above
+counter_statement.batch do |batch|
+  batch.add(3, 'some_counter')
+  batch.add(2, 'another_counter')
 end
-
-client.batch(trace: true, consistency: :all) do |batch|
-  # ...
-end
-
-batch = client.batch
-# ...
-batch.execute(consistency: :quorum)
-
-batch = client.batch(trace: true)
-# ...
-batch.execute(consistency: :quorum)
 ```
-
-As you can see you can specify the options either when creating the batch or when sending it (when using the variant where you call `#execute` yourself). The options given to `#execute` take precedence. You can omit the batch type and specify the options as the only parameter when you want to use the the default batch type.
 
 Cassandra 1.2 also supported batching, but only as a CQL feature, you had to build the batch as a string, and it didn't really play well with prepared statements.
 
@@ -219,15 +213,11 @@ If you're using Cassandra 2.0 or later you can page your query results by adding
 ```ruby
 result_page = client.execute("SELECT * FROM large_table WHERE id = 'partition_with_lots_of_data'", page_size: 100)
 
-loop do
+while result_page
   result_page.each do |row|
     p row
   end
-  if result_page.last?
-    break
-  else
-    result_page = result_page.next_page
-  end
+  result_page = result_page.next_page
 end
 ```
 
@@ -239,19 +229,28 @@ You can specify the default consistency to use when you create a new `Client`:
 client = Cql::Client.connect(hosts: %w[localhost], default_consistency: :all)
 ```
 
-The `#execute` (of `Client` and `PreparedStatement`) method also supports setting the desired consistency level on a per-request basis:
+The `#execute` (of `Client`, `PreparedStatement` and `Batch`) method also supports setting the desired consistency level on a per-request basis:
 
 ```ruby
-client.execute('SELECT * FROM peers', consistency: :local_quorum)
+client.execute('SELECT * FROM users', consistency: :local_quorum)
+
+statement = client.prepared('SELECT * FROM users')
+statement.execute(consistency: :one)
+
+batch = client.batch
+batch.add("UPDATE users SET email = 'sue@foobar.com' WHERE id = 'sue'")
+batch.add("UPDATE users SET email = 'tom@foobar.com' WHERE id = 'tom'")
+batch.execute(consistency: :all)
+
+batch = client.batch(consistency: :quorum) do |batch|
+  batch.add("UPDATE users SET email = 'sue@foobar.com' WHERE id = 'sue'")
+  batch.add("UPDATE users SET email = 'tom@foobar.com' WHERE id = 'tom'")
+end
 ```
 
-for backwards compatibility with v1.0 you can also pass the consistency as just a symbol:
+For batches the options given to `#execute` take precedence over options given to `#batch`.
 
-```ruby
-client.execute('SELECT * FROM peers', :local_quorum)
-```
-
-The possible values for consistency are: 
+The possible values for consistency are:
 
 * `:any`
 * `:one`
@@ -291,6 +290,20 @@ client = Cql::Client.connect(logger: Logger.new($stderr))
 ```
 
 Most of the logging will be when the driver connects and discovers new nodes, when connections fail and so on, but also when statements are prepared. The logging is designed to not cause much overhead and only relatively rare events are logged (e.g. normal requests are not logged).
+
+## Tracing
+
+You can request that Cassandra traces a request and records what each node had to do to process the request. To request that a query is traced you can specify the `:trace` option to `#execute`. The request will proceed as normal, but you will also get a trace ID back in your response. This ID can then be used to load up the trace data:
+
+```ruby
+result = client.execute("SELECT * FROM users", trace: true)
+session_result = client.execute("SELECT * FROM system_traces.sessions WHERE session_id = ?", result.trace_id, consistency: :one)
+events_result = client.execute("SELECT * FROM system_traces.events WHERE session_id = ?", result.trace_id, consistency: :one)
+```
+
+Notice how you can query tables in other keyspaces by prefixing their names with the keyspace name.
+
+The `system_traces.sessions` table contains information about the request itself; which node was the coordinator, the CQL, the total duration, etc. (if the `duration` column is `null` the trace hasn't been completely written yet and you should load it again later). The `events` table contains information about what happened on each node and at what time. Note that each event only contains the number of seconds that elapsed from when the node started processing the request – you can't easily sort these events in a global order.
 
 ## Thread safety
 
@@ -358,11 +371,11 @@ There's a known issue with collections that get too big. The protocol uses a sho
 
 ## Authentication doesn't work
 
-Please open an issue. It should be working, but it's hard to set up and write automated tests for, so there may be edge cases that aren't covered. If you're using Cassandra 2.0 or DataStax Enterprise 4.0 or higher and are using something other than the built in `PasswordAuthenticator` your setup is theoretically supported, but it's not field tested.
+Please open an issue. It should be working, but it's hard to set up and write automated tests for, so there may be edge cases that aren't covered. If you're using Cassandra 2.0 or DataStax Enterprise 3.1 or higher and/or are using something other than the built in `PasswordAuthenticator` your setup is theoretically supported, but it's not field tested.
 
-If you are using DataStax Enterprise earlier than 4.0 authentication is unfortunately supported. Please open an issue and we might be able to get it working, I just need someone who's willing to test it out. DataStax backported the authentication from Cassandra 2.0 into DSE, even though it only uses Cassandra 1.2. The authentication logic might not be able to handle this and will try to authenticate with DSE using an earlier version of the protocol. In short, DSE before 4.0 uses a non-standard protocol, but it should be possible to get it working.
+If you are using DataStax Enterprise earlier than 3.1 authentication is unfortunately not supported. Please open an issue and we might be able to get it working, I just need someone who's willing to test it out. DataStax backported the authentication from Cassandra 2.0 into DSE 3.0, even though it only uses Cassandra 1.2. The authentication logic might not be able to handle this and will try to authenticate with DSE using an earlier version of the protocol. In short, DSE before 3.1 uses a non-standard protocol, but it should be possible to get it working. DSE 3.1 and 4.0 have been confirmed to work.
 
-## I'm connecting to port 9160 and it doesn't work
+## I get "end of file reached" / I'm connecting to port 9160 and it doesn't work
 
 Port 9160 is the old Thrift interface, the binary protocol runs on 9042. This is also the default port for cql-rb, so unless you've changed the port in `cassandra.yaml`, don't override the port.
 
@@ -402,7 +415,7 @@ Compression works best for large requests, so if you use batching you should ben
 
 # Try experimental features
 
-To get maximum performance you can't wait for a request to complete before sending the next. At it's core cql-rb embraces this completely and uses non-blocking IO and a completely asynchronous model for the request processing. The synchronous API that you use is just a thin façade on top that exists for convenience. If you need to scale to thousands of requests per second, have a look at the client code and look at the asynchronous core, it works very much like the public API, _but using it they should be considererd **experimental**_. Experimental in this context does not mean buggy, it is the core of cql-rb after all, but it means that you cannot rely on it being backwards compatible.
+To get maximum performance you can't wait for a request to complete before sending the next. At it's core cql-rb embraces this completely and uses non-blocking IO and an asynchronous model for the request processing. The synchronous API that you use is just a thin façade on top that exists for convenience. If you need to scale to thousands of requests per second, have a look at the client code and look at the asynchronous core, it works very much like the public API, _but using it they should be considererd **experimental**_. Experimental in this context does not mean buggy, it is the core of cql-rb after all, but it means that you cannot rely on it being backwards compatible.
 
 # Changelog & versioning
 

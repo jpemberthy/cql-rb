@@ -2,6 +2,34 @@
 
 module Cql
   module Client
+    # A prepared statement are CQL queries that have been sent to the server
+    # to be precompiled, so that when executed only their ID and not the whole
+    # CQL string need to be sent. They support bound values, or placeholders
+    # for values.
+    #
+    # Using a prepared statement for any query that you execute more than once
+    # is highly recommended. Besides the benefit of having less network overhead,
+    # and less processing overhead on the server side, they don't require you
+    # to build CQL strings and escape special characters, or format non-character
+    # data such as UUIDs, different numeric types, or collections, in the
+    # correct way.
+    #
+    # You should only prepare a statement once and reuse the prepared statement
+    # object every time you want to execute that particular query. The statement
+    # object will make sure that it is prepared on all connections, and will
+    # (lazily, but transparently) make sure it is prepared on any new connections.
+    #
+    # It is an anti-pattern to prepare the same query over and over again. It is
+    # bad for performance, since every preparation requires a roundtrip to all
+    # connected servers, and because of some bookeeping that is done to support
+    # automatic preparation on new connections, it will lead to unnecessary
+    # extra memory usage. There is no performance benefit in creating multiple
+    # prepared statement objects for the same query.
+    #
+    # Prepared statement objects are completely thread safe and can be shared
+    # across all threads in your application.
+    #
+    # @see Cql::Client::Client#prepare
     class PreparedStatement
       # Metadata describing the bound values
       #
@@ -28,10 +56,22 @@ module Cql
       # arguments should result in an `ArgumentError` or `TypeError` being
       # raised.
       #
-      # @param args [Array] the values for the bound parameters. The last
-      #   argument can also be an options hash or a symbol (as a shortcut for
-      #   specifying the consistency), see {Cql::Client::Client#execute} for
-      #   full details.
+      # @example Preparing and executing an `INSERT` statement
+      #   statement = client.prepare(%(INSERT INTO metrics (id, time, value) VALUES (?, NOW(), ?)))
+      #   statement.execute(1234, 23432)
+      #   statement.execute(2345, 34543, tracing: true)
+      #   statement.execute(3456, 45654, consistency: :one)
+      #
+      # @example Preparing and executing a `SELECT` statement
+      #   statement = client.prepare(%(SELECT * FROM metrics WHERE id = ? AND time > ?))
+      #   result = statement.execute(1234, Time.now - 3600)
+      #   result.each do |row|
+      #     p row
+      #   end
+      #
+      # @param args [Array] the values for the bound parameters, and an optional
+      #   hash of options as last argument – see {Cql::Client::Client#execute}
+      #   for details on which options are available.
       # @raise [ArgumentError] raised when number of argument does not match
       #   the number of parameters needed to be bound to the statement.
       # @raise [Cql::NotConnectedError] raised when the client is not connected
@@ -44,6 +84,45 @@ module Cql
       #   `INSERT` and `UPDATE` return a similar type
       #   (see {Cql::Client::VoidResult}).
       def execute(*args)
+      end
+
+      # Yields a batch when called with a block. The batch is automatically
+      # executed at the end of the block and the result is returned.
+      #
+      # Returns a batch when called wihtout a block. The batch will remember
+      # the options given and merge these with any additional options given
+      # when {Cql::Client::PreparedStatementBatch#execute} is called.
+      #
+      # The batch yielded or returned by this method is not identical to the
+      # regular batch objects yielded or returned by {Cql::Client::Client#batch}.
+      # These prepared statement batch objects can be used only to add multiple
+      # executions of the same prepared statement.
+      #
+      # Please note that the batch object returned by this method _is not thread
+      # safe_.
+      #
+      # The type parameter can be ommitted and the options can then be given
+      # as first parameter.
+      #
+      # @example Executing a prepared statement in a batch
+      #   statement = client.prepare(%(INSERT INTO metrics (id, time, value) VALUES (?, NOW(), ?)))
+      #   statement.batch do |batch|
+      #     batch.add(1234, 23423)
+      #     batch.add(2346, 13)
+      #     batch.add(2342, 2367)
+      #     batch.add(4562, 1231)
+      #   end
+      #
+      # @see Cql::Client::PreparedStatementBatch
+      # @see Cql::Client::Client#batch
+      # @param [Symbol] type the type of batch, must be one of `:logged`,
+      #   `:unlogged` and `:counter`. The precise meaning of these  is defined
+      #   in the CQL specification.
+      # @yieldparam [Cql::Client::PreparedStatementBatch] batch the batch
+      # @return [Cql::Client::VoidResult, Cql::Client::Batch] when no block is
+      #   given the batch is returned, when a block is given the result of
+      #   executing the batch is returned (see {Cql::Client::Batch#execute}).
+      def batch(type=:logged, options={})
       end
     end
 

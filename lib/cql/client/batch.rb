@@ -2,6 +2,13 @@
 
 module Cql
   module Client
+    # Batches let you send multiple queries (`INSERT`, `UPDATE` and `DELETE`) in
+    # one go. This can lead to better performance, and depending on the options
+    # you specify can also give you different consistency guarantees.
+    #
+    # Batches can contain a mix of different queries and prepared statements.
+    #
+    # @see Cql::Client::Client#batch
     class Batch
       # @!method add(cql_or_prepared_statement, *bound_values)
       #
@@ -37,6 +44,10 @@ module Cql
       # @return [Cql::Client::VoidResult] a batch always returns a void result
     end
 
+    # A convenient wrapper that makes it easy to build batches of multiple
+    # executions of the same prepared statement.
+    #
+    # @see Cql::Client::PreparedStatement#batch
     class PreparedStatementBatch
       # @!method add(*bound_values)
       #
@@ -100,6 +111,7 @@ module Cql
             raise
           end
         end
+        @parts = []
         @request_runner.execute(connection, request, options[:timeout])
       end
 

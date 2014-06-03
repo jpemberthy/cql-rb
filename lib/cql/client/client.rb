@@ -2,18 +2,29 @@
 
 module Cql
   module Client
+    # A CQL client manages connections to one or more Cassandra nodes and you use
+    # it run queries, insert and update data, prepare statements and switch
+    # keyspaces.
+    #
+    # To get a reference to a client you call {Cql::Client.connect}. When you
+    # don't need the client anymore you can call {#close} to close all connections.
+    #
+    # Internally the client runs an IO reactor in a background thread. The reactor
+    # handles all IO and manages the connections to the Cassandra nodes. This
+    # makes it possible for the client to handle highly concurrent applications
+    # very efficiently.
+    #
+    # Client instances are threadsafe and you only need a single instance for in
+    # an application. Using multiple instances is more likely to lead to worse
+    # performance than better.
+    #
+    # Because the client opens sockets, and runs threads it cannot be used by
+    # the child created when forking a process. If your application forks (for
+    # example applications running in the Unicorn application server or Resque
+    # task queue) you _must_ connect after forking.
+    #
+    # @see Cql::Client.connect
     class Client
-      # @!method connect
-      #
-      # Connect to all nodes. See {Cql::Client.connect} for the full
-      # documentation.
-      #
-      # This method needs to be called before any other. Calling it again will
-      # have no effect.
-      #
-      # @see Cql::Client.connect
-      # @return [Cql::Client]
-
       # @!method close
       #
       # Disconnect from all nodes.
@@ -43,7 +54,7 @@ module Cql
       # @raise [Cql::NotConnectedError] raised when the client is not connected
       # @return [nil]
 
-      # @!method execute(cql, *values, options_or_consistency={})
+      # @!method execute(cql, *values, options={})
       #
       # Execute a CQL statement, optionally passing bound values.
       #
@@ -55,7 +66,8 @@ module Cql
       # bound values when you will issue the request multiple times, prepared
       # statements are almost always a better choice.
       #
-      # @note On-the-fly bound values are not supported in Cassandra 1.2
+      # _Please note that on-the-fly bound values are only supported by Cassandra
+      # 2.0 and above._
       #
       # @example A simple CQL query
       #   result = client.execute("SELECT * FROM users WHERE user_name = 'sue'")
@@ -75,6 +87,15 @@ module Cql
       # @example Specifying the consistency and other options
       #   client.execute("SELECT * FROM users", consistency: :all, timeout: 1.5)
       #
+      # @example Loading a big result page by page
+      #   result_page = client.execute("SELECT * FROM large_table WHERE id = 'partition_with_lots_of_data'", page_size: 100)
+      #   while result_page
+      #     result_page.each do |row|
+      #       p row
+      #     end
+      #     result_page = result_page.next_page
+      #   end
+      #
       # @example Activating tracing for a query
       #   result = client.execute("SELECT * FROM users", tracing: true)
       #   p result.trace_id
@@ -88,24 +109,26 @@ module Cql
       #   integers, and DOUBLE instead of FLOAT for floating point numbers. It
       #   is not recommended to use this feature for anything but convenience,
       #   and the algorithm used to guess types is to be considered experimental.
-      # @param [Hash] options_or_consistency Either a consistency as a symbol
-      #   (e.g. `:quorum`), or a options hash (see below). Passing a symbol is
-      #   equivalent to passing the options `consistency: <symbol>`.
-      # @option options_or_consistency [Symbol] :consistency (:quorum) The
+      # @param [Hash] options
+      # @option options [Symbol] :consistency (:quorum) The
       #   consistency to use for this query.
-      # @option options_or_consistency [Symbol] :serial_consistency (nil) The
+      # @option options [Symbol] :serial_consistency (nil) The
       #   consistency to use for conditional updates (`:serial` or
       #   `:local_serial`), see the CQL documentation for the semantics of
       #   serial consistencies and conditional updates. The default is assumed
       #   to be `:serial` by the server if none is specified. Ignored for non-
       #   conditional queries.
-      # @option options_or_consistency [Integer] :timeout (nil) How long to wait
+      # @option options [Integer] :timeout (nil) How long to wait
       #   for a response. If this timeout expires a {Cql::TimeoutError} will
       #   be raised.
-      # @option options_or_consistency [Boolean] :trace (false) Request tracing
+      # @option options [Boolean] :trace (false) Request tracing
       #   for this request. See {Cql::Client::QueryResult} and
       #   {Cql::Client::VoidResult} for how to retrieve the tracing data.
-      # @option options_or_consistency [Array] :type_hints (nil) When passing
+      # @option options [Integer] :page_size (nil) Instead of
+      #   returning all rows, return the response in pages of this size. The
+      #   first result will contain the first page, to load subsequent pages
+      #   use {Cql::Client::QueryResult#next_page}.
+      # @option options [Array] :type_hints (nil) When passing
       #   on-the-fly bound values the request encoder will have to guess what
       #   types to encode the values as. Using this option you can give it hints
       #   and avoid it guessing wrong. The hints must be an array that has the
@@ -127,7 +150,7 @@ module Cql
       # @!method prepare(cql)
       #
       # Returns a prepared statement that can be run over and over again with
-      # different values.
+      # different bound values.
       #
       # @see Cql::Client::PreparedStatement
       # @param [String] cql The CQL to prepare
@@ -203,7 +226,7 @@ module Cql
         @port = options[:port] || DEFAULT_PORT
         @connection_timeout = options[:connection_timeout] || DEFAULT_CONNECTION_TIMEOUT
         @credentials = options[:credentials]
-        @auth_provider = options[:auth_provider] || @credentials && PlainTextAuthProvider.new(*@credentials.values_at(:username, :password))
+        @auth_provider = options[:auth_provider] || @credentials && Auth::PlainTextAuthProvider.new(*@credentials.values_at(:username, :password))
         @connected = false
         @connecting = false
         @closing = false
@@ -315,7 +338,7 @@ module Cql
       MAX_RECONNECTION_ATTEMPTS = 5
 
       def extract_hosts(options)
-        if options[:hosts]
+        if options[:hosts] && options[:hosts].any?
           options[:hosts].uniq
         elsif options[:host]
           options[:host].split(',').uniq

@@ -2,6 +2,9 @@
 
 module Cql
   module Client
+    # A collection of metadata (keyspace, table, name and type) of a result set.
+    #
+    # @see Cql::Client::ColumnMetadata
     class ResultMetadata
       include Enumerable
 
@@ -13,7 +16,6 @@ module Cql
       # Returns the column metadata
       #
       # @return [ColumnMetadata] column_metadata the metadata for the column
-      #
       def [](column_name)
         @metadata[column_name]
       end
@@ -22,7 +24,6 @@ module Cql
       #
       # @yieldparam [ColumnMetadata] metadata the metadata for each column
       # @return [Enumerable<ColumnMetadata>]
-      #
       def each(&block)
         @metadata.each_value(&block)
       end

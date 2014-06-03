@@ -78,19 +78,30 @@ module Cql
           batch.add('UPDATE x SET y = 2 WHERE z = ?', 3)
           batch.add(prepared_statement, 3, 'foo')
           batch.execute.value
-          encoded_frame = last_request.write(1, '')
-          encoded_frame.should include('UPDATE x SET y = 1 WHERE z = 2')
-          encoded_frame.should include('UPDATE x SET y = 2 WHERE z = ?')
-          encoded_frame.should include(Protocol::QueryRequest.encode_values('', [3], nil))
-          encoded_frame.should include('XXXXXXXXXXXXXXXX')
-          encoded_frame.should include(Protocol::ExecuteRequest.encode_values('', metadata, [3, 'foo']))
+          encoded_frame = last_request.write(1, Protocol::CqlByteBuffer.new)
+          encoded_frame.to_s.should include('UPDATE x SET y = 1 WHERE z = 2')
+          encoded_frame.to_s.should include('UPDATE x SET y = 2 WHERE z = ?')
+          encoded_frame.to_s.should include(Protocol::QueryRequest.encode_values(Protocol::CqlByteBuffer.new, [3], nil))
+          encoded_frame.to_s.should include('XXXXXXXXXXXXXXXX')
+          encoded_frame.to_s.should include(Protocol::ExecuteRequest.encode_values(Protocol::CqlByteBuffer.new, metadata, [3, 'foo']))
+        end
+
+        it 'resets the batch so that it can be used again' do
+          batch.add('UPDATE x SET y = 1 WHERE z = 2')
+          batch.execute.value
+          batch.add('UPDATE x SET y = 2 WHERE z = 3')
+          batch.execute.value
+          first_request, second_request = requests.map { |r| r[0].write(1, Protocol::CqlByteBuffer.new).to_s }
+          first_request.should include('UPDATE x SET y = 1 WHERE z = 2')
+          second_request.should include('UPDATE x SET y = 2 WHERE z = 3')
+          second_request.should_not include('UPDATE x SET y = 1 WHERE z = 2')
         end
 
         it 'uses the provided type hints' do
           batch.add('UPDATE x SET y = 2 WHERE z = ?', 3, type_hints: [:int])
           batch.execute.value
-          encoded_frame = last_request.write(1, '')
-          encoded_frame.should include(Protocol::QueryRequest.encode_values('', [3], [:int]))
+          encoded_frame = last_request.write(1, Protocol::CqlByteBuffer.new)
+          encoded_frame.to_s.should include(Protocol::QueryRequest.encode_values(Protocol::CqlByteBuffer.new, [3], [:int]))
         end
 
         it 'tries again when a prepared statement raises NotPreparedError' do

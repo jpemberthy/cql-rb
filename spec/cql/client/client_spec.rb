@@ -11,7 +11,7 @@ module Cql
       end
 
       let :default_connection_options do
-        {:host => 'example.com', :port => 12321, :io_reactor => io_reactor, :logger => logger}
+        {:hosts => %w[example.com], :port => 12321, :io_reactor => io_reactor, :logger => logger}
       end
 
       let :connection_options do
@@ -162,6 +162,19 @@ module Cql
           expect { client.connect.value }.to raise_error('bork')
         end
 
+        it 'connects to localhost by default' do
+          connection_options.delete(:hosts)
+          c = described_class.new(connection_options)
+          c.connect.value
+          connections.map(&:host).should == %w[localhost]
+        end
+
+        it 'connects to localhost when an empty list of hosts is given' do
+          c = described_class.new(connection_options.merge(hosts: []))
+          c.connect.value
+          connections.map(&:host).should == %w[localhost]
+        end
+
         context 'when connecting to multiple hosts' do
           before do
             client.close.value
@@ -175,6 +188,7 @@ module Cql
           end
 
           it 'connects to all hosts, when given as a comma-sepatated string' do
+            connection_options.delete(:hosts)
             c = described_class.new(connection_options.merge(host: 'h1.example.com,h2.example.com,h3.example.com'))
             c.connect.value
             connections.should have(3).items
@@ -510,7 +524,7 @@ module Cql
 
         context 'when the server requests authentication' do
           let :auth_provider do
-            PlainTextAuthProvider.new('foo', 'bar')
+            Auth::PlainTextAuthProvider.new('foo', 'bar')
           end
 
           def accepting_request_handler(request, *)
